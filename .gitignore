@@ -1,0 +1,7 @@
+# Jangan pernah commit folder config koneksi (berisi password terenkripsi)
+.ssh-manager/
+*.conf
+
+# OS / editor junk
+.DS_Store
+*.swp
