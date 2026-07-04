@@ -207,6 +207,48 @@ cmd_dc() {
     rm -f "$ACTIVE_FILE"
 }
 
+cmd_restore() {
+    local bin_dir
+    bin_dir="$(dirname "$REAL_SSH")"
+    local sshm_path="$bin_dir/sshm"
+    local ssh_path="$bin_dir/ssh"
+
+    c_cyan "== Mengembalikan 'ssh' ke openssh bawaan =="
+
+    if ! command -v pkg >/dev/null 2>&1; then
+        die "Command 'pkg' tidak ditemukan. Restore otomatis hanya didukung di Termux."
+    fi
+
+    read -rp "Ini akan reinstall paket openssh dan menghapus command 'sshm'. Lanjut? [y/N] " confirm
+    case "$confirm" in
+        y|Y) ;;
+        *) echo "Dibatalkan."; return ;;
+    esac
+
+    echo "Menghapus wrapper 'ssh' lama..."
+    rm -f "$ssh_path"
+
+    echo "Reinstall paket openssh (memulihkan binary ssh asli)..."
+    pkg reinstall -y openssh || pkg install -y --reinstall openssh || die "Gagal reinstall openssh. Coba manual: pkg reinstall openssh"
+
+    if [ -f "$sshm_path" ]; then
+        read -rp "Hapus juga command 'sshm' dan semua koneksi tersimpan? [y/N] " confirm2
+        case "$confirm2" in
+            y|Y)
+                rm -f "$sshm_path"
+                rm -rf "$CONF_DIR"
+                c_green "✓ 'sshm' dan semua koneksi tersimpan sudah dihapus."
+                ;;
+            *)
+                echo "'sshm' tetap disimpan, cuma command 'ssh' yang dikembalikan ke openssh bawaan."
+                ;;
+        esac
+    fi
+
+    hash -r 2>/dev/null || true
+    c_green "✓ Command 'ssh' sudah dikembalikan ke openssh bawaan Termux."
+}
+
 cmd_help() {
     cat <<EOF
 $(c_cyan "SSH Manager - Termux")
@@ -216,6 +258,7 @@ $(c_cyan "SSH Manager - Termux")
   ssh list              Lihat semua koneksi tersimpan
   ssh remove <nama>     Hapus koneksi tersimpan
   ssh dc                Info soal session aktif / cara disconnect
+  ssh restore           Kembalikan command 'ssh' ke openssh bawaan (uninstall)
   ssh <user>@<host>     Passthrough ke ssh biasa (fitur normal tetap jalan)
 
 Contoh:
@@ -223,6 +266,7 @@ Contoh:
   ssh connect vps1
   ssh list
   ssh remove vps1
+  ssh restore
 EOF
 }
 
@@ -236,6 +280,7 @@ main() {
         list)    cmd_list;;
         remove|rm) shift; cmd_remove "${1:-}";;
         dc|disconnect) cmd_dc;;
+        restore|uninstall) cmd_restore;;
         help|-h|--help|"") cmd_help;;
         *)
             # passthrough ke ssh asli biar tetap kompatibel: ssh user@host
