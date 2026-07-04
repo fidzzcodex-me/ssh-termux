@@ -14,7 +14,8 @@ set -euo pipefail
 CONF_DIR="$HOME/.ssh-manager"
 CONN_DIR="$CONF_DIR/connections"
 ACTIVE_FILE="$CONF_DIR/active_session"
-REAL_SSH="$(command -v ssh)"
+REAL_SSH="$(command -v ssh || true)"
+[ -z "$REAL_SSH" ] && REAL_SSH="/data/data/com.termux/files/usr/bin/ssh"
 
 mkdir -p "$CONN_DIR"
 chmod 700 "$CONF_DIR" "$CONN_DIR"
@@ -43,15 +44,14 @@ encrypt_str() {
 # decrypt base64 -> stdout
 decrypt_str() {
     local enc="$1" pass="$2"
-    printf '%s' "$enc" | openssl enc -aes-256-cbc -pbkdf2 -d -salt -pass pass:"$pass" -base64 2>/dev/null
+    printf '%s\n' "$enc" | openssl enc -aes-256-cbc -pbkdf2 -d -salt -pass pass:"$pass" -base64 2>/dev/null
 }
 
+ASKED_PASS=""
 ask_master_pass() {
     local prompt="$1"
-    local pass
-    read -rsp "$prompt" pass
+    read -rsp "$prompt" ASKED_PASS
     echo
-    printf '%s' "$pass"
 }
 
 # ---------- commands ----------
@@ -66,6 +66,28 @@ cmd_create() {
 
     c_cyan "== Bikin koneksi baru: $name =="
 
+    echo "Metode koneksi:"
+    echo "  1) Host + User + Password"
+    echo "  2) Host + User + SSH key (file)"
+    echo "  3) Connection string langsung (contoh: tmate -> token@host)"
+    read -rp "Pilih [1/2/3]  : " method
+
+    if [ "$method" = "3" ]; then
+        read -rp "Connection string (user@host): " connstr
+        [ -z "$connstr" ] && die "Connection string wajib diisi."
+        read -rp "Port [22]      : " port
+        port="${port:-22}"
+        {
+            echo "AUTH=connstr"
+            echo "CONNSTR=$connstr"
+            echo "PORT=$port"
+        } > "$file"
+        chmod 600 "$file"
+        c_green "✓ Koneksi '$name' berhasil disimpan."
+        echo "  Connect dengan: ssh connect $name"
+        return
+    fi
+
     read -rp "Host/IP        : " host
     [ -z "$host" ] && die "Host wajib diisi."
 
@@ -75,14 +97,9 @@ cmd_create() {
     read -rp "Port [22]      : " port
     port="${port:-22}"
 
-    echo "Metode auth:"
-    echo "  1) Password"
-    echo "  2) SSH key (file)"
-    read -rp "Pilih [1/2]    : " method
-
     {
         echo "HOST=$host"
-        echo "USER=$user"
+        echo "SSH_USER=$user"
         echo "PORT=$port"
     } > "$file"
 
@@ -120,7 +137,11 @@ cmd_list() {
         name="$(basename "$f" .conf)"
         # shellcheck disable=SC1090
         source "$f"
-        printf "  %-15s %s@%s:%s (%s)\n" "$name" "$USER" "$HOST" "$PORT" "$AUTH"
+        if [ "$AUTH" = "connstr" ]; then
+            printf "  %-15s %s:%s (connstr)\n" "$name" "$CONNSTR" "$PORT"
+        else
+            printf "  %-15s %s@%s:%s (%s)\n" "$name" "$SSH_USER" "$HOST" "$PORT" "$AUTH"
+        fi
     done
 }
 
@@ -147,17 +168,21 @@ cmd_connect() {
     echo "$name" > "$ACTIVE_FILE"
 
     if [ "$AUTH" = "key" ]; then
-        c_green "→ Menghubungkan ke $USER@$HOST:$PORT (key: $KEYPATH)..."
-        "$REAL_SSH" -i "$KEYPATH" -p "$PORT" "$USER@$HOST"
+        c_green "→ Menghubungkan ke $SSH_USER@$HOST:$PORT (key: $KEYPATH)..."
+        "$REAL_SSH" -i "$KEYPATH" -p "$PORT" "$SSH_USER@$HOST"
+    elif [ "$AUTH" = "connstr" ]; then
+        c_green "→ Menghubungkan via connection string ($CONNSTR:$PORT)..."
+        "$REAL_SSH" -p "$PORT" "$CONNSTR"
     else
         require_openssl
         command -v sshpass >/dev/null 2>&1 || die "sshpass belum terinstall. Jalankan: pkg install sshpass"
-        local masterpass plain
-        masterpass="$(ask_master_pass "Master password: ")"
-        plain="$(decrypt_str "$PASSENC" "$masterpass")"
+        local plain
+        ask_master_pass "Master password: "
+        plain="$(decrypt_str "$PASSENC" "$ASKED_PASS" || true)"
+        ASKED_PASS=""
         [ -z "$plain" ] && die "Master password salah atau data corrupt."
-        c_green "→ Menghubungkan ke $USER@$HOST:$PORT..."
-        sshpass -p "$plain" "$REAL_SSH" -o StrictHostKeyChecking=accept-new -p "$PORT" "$USER@$HOST"
+        c_green "→ Menghubungkan ke $SSH_USER@$HOST:$PORT..."
+        sshpass -p "$plain" "$REAL_SSH" -o StrictHostKeyChecking=accept-new -p "$PORT" "$SSH_USER@$HOST"
         unset plain
     fi
 
