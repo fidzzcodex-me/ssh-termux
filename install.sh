@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #
-# Installer buat SSH Manager (Termux)
-# Pemakaian:
+# SSH Manager — Installer for Termux
+# Usage:
 #   curl -fsSL https://raw.githubusercontent.com/fidzzcodex-me/ssh-termux/main/install.sh | bash
 #
 set -e
@@ -10,66 +10,96 @@ REPO="fidzzcodex-me/ssh-termux"
 BRANCH="main"
 RAW_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/ssh"
 
-BIN_NAME="sshm"   # command default, aman & tidak menimpa ssh bawaan
+BIN_NAME="sshm"
 INSTALL_DIR="${PREFIX:-/data/data/com.termux/files/usr}/bin"
 
-info()  { printf '\033[1;36m%s\033[0m\n' "$1"; }
-ok()    { printf '\033[1;32m%s\033[0m\n' "$1"; }
-warn()  { printf '\033[1;33m%s\033[0m\n' "$1"; }
-err()   { printf '\033[1;31m%s\033[0m\n' "$1" >&2; }
+# ─── Colors ───────────────────────────────────────────────────────────────────
+R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m'
+C='\033[1;36m' W='\033[1;37m' DIM='\033[2m' RESET='\033[0m'
 
-info "== Installing SSH Manager =="
+info() { printf "${C}  ➜ %s${RESET}\n" "$1"; }
+ok()   { printf "${G}  ✔ %s${RESET}\n" "$1"; }
+warn() { printf "${Y}  ⚠ %s${RESET}\n" "$1"; }
+err()  { printf "${R}  ✗ %s${RESET}\n" "$1" >&2; }
 
-# 1. Pastikan di Termux (cek keberadaan $PREFIX khas Termux)
+# ─── Banner ───────────────────────────────────────────────────────────────────
+w=46
+line=$(printf '─%.0s' $(seq 1 $w))
+printf "\n${C}┌${line}┐${RESET}\n"
+printf "${C}│${W}  %-${w}s${C}│${RESET}\n" "SSH Manager — Installer"
+printf "${C}└${line}┘${RESET}\n\n"
+
+# ─── 1. Termux check ──────────────────────────────────────────────────────────
 if [ ! -d "/data/data/com.termux/files/usr" ]; then
-    warn "Peringatan: sepertinya kamu tidak menjalankan ini di Termux."
-    warn "Script tetap lanjut, tapi beberapa fitur mungkin tidak berfungsi optimal."
+  warn "Not running inside Termux — some features may not work correctly."
 fi
 
-# 2. Install dependency
+# ─── 2. Install dependencies ──────────────────────────────────────────────────
 if command -v pkg >/dev/null 2>&1; then
-    info "Memasang dependency (openssl-tool, sshpass, openssh)..."
-    pkg install -y openssl-tool sshpass openssh >/dev/null 2>&1 || {
-        warn "Gagal auto-install dependency. Install manual jika perlu:"
-        warn "  pkg install openssl-tool sshpass openssh"
-    }
+  info "Installing dependencies (openssl-tool, sshpass, openssh)..."
+  pkg install -y openssl-tool sshpass openssh >/dev/null 2>&1 || {
+    warn "Auto-install failed. Install manually if needed:"
+    warn "  pkg install openssl-tool sshpass openssh"
+  }
 fi
 
-# 3. Download script utama
+# ─── 3. Download ──────────────────────────────────────────────────────────────
 mkdir -p "$INSTALL_DIR"
 TMP_FILE="$(mktemp)"
 
-info "Mengunduh dari $RAW_URL ..."
+info "Downloading from GitHub..."
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$RAW_URL" -o "$TMP_FILE"
+  curl -fsSL "$RAW_URL" -o "$TMP_FILE"
 elif command -v wget >/dev/null 2>&1; then
-    wget -q "$RAW_URL" -O "$TMP_FILE"
+  wget -q "$RAW_URL" -O "$TMP_FILE"
 else
-    err "curl atau wget tidak ditemukan. Install salah satu dulu: pkg install curl"
-    exit 1
+  err "curl or wget not found. Install one first: pkg install curl"
+  exit 1
 fi
 
-# 4. Validasi hasil download (bukan file kosong / halaman 404)
+# ─── 4. Validate download ─────────────────────────────────────────────────────
 if [ ! -s "$TMP_FILE" ] || grep -qi "404: Not Found" "$TMP_FILE"; then
-    err "Gagal mengunduh script. Cek apakah repo/branch/path sudah benar:"
-    err "  $RAW_URL"
-    rm -f "$TMP_FILE"
-    exit 1
+  err "Download failed. Check repo/branch/path:"
+  err "  $RAW_URL"
+  rm -f "$TMP_FILE"
+  exit 1
 fi
 
-# 5. Pasang
+# ─── 5. Install ───────────────────────────────────────────────────────────────
 mv "$TMP_FILE" "$INSTALL_DIR/$BIN_NAME"
 chmod +x "$INSTALL_DIR/$BIN_NAME"
 hash -r 2>/dev/null || true
 
-ok "✓ Terinstall sebagai command: $BIN_NAME"
+# ─── 5b. Optional: install as 'ssh' too (with mandatory backup) ──────────────
 echo ""
-echo "Kenapa '$BIN_NAME' bukan 'ssh'? Supaya command ssh bawaan tidak ketiban/rusak."
-echo "Kalau kamu YAKIN mau override command 'ssh' sepenuhnya, jalankan:"
-echo "  cp \$PREFIX/bin/$BIN_NAME \$PREFIX/bin/ssh && chmod +x \$PREFIX/bin/ssh"
-echo ""
-info "Contoh pemakaian:"
-echo "  $BIN_NAME create myvps"
-echo "  $BIN_NAME connect myvps"
-echo "  $BIN_NAME list"
-echo "  $BIN_NAME remove myvps"
+read -rp "  Also override the 'ssh' command directly? [y/N] " override
+case "$override" in
+  y|Y)
+    if [ -e "$INSTALL_DIR/ssh" ] && [ ! -e "$INSTALL_DIR/ssh.real" ]; then
+      info "Backing up original ssh binary to 'ssh.real'..."
+      cp "$INSTALL_DIR/ssh" "$INSTALL_DIR/ssh.real"
+    fi
+    cp "$INSTALL_DIR/$BIN_NAME" "$INSTALL_DIR/ssh"
+    chmod +x "$INSTALL_DIR/ssh"
+    hash -r 2>/dev/null || true
+    ok "'ssh' now runs the wrapper. Original backed up as 'ssh.real'."
+    ;;
+  *)
+    echo "  Skipped. Use '$BIN_NAME' as the command name."
+    ;;
+esac
+
+# ─── 6. Summary ───────────────────────────────────────────────────────────────
+printf "\n${C}┌${line}┐${RESET}\n"
+printf "${C}│${W}  %-${w}s${C}│${RESET}\n" "Installation Complete!"
+printf "${C}├${line}┤${RESET}\n"
+printf "${C}│${RESET}  ${DIM}%-${w}s${C}│${RESET}\n" "Command installed as: sshm"
+printf "${C}│${RESET}  %-${w}s${C}│${RESET}\n" ""
+printf "${C}│${RESET}  ${G}sshm create myvps   ${DIM}%-$((w-20))s${C}│${RESET}\n" "Save a connection"
+printf "${C}│${RESET}  ${G}sshm connect myvps  ${DIM}%-$((w-20))s${C}│${RESET}\n" "Connect"
+printf "${C}│${RESET}  ${G}sshm list           ${DIM}%-$((w-20))s${C}│${RESET}\n" "List connections"
+printf "${C}│${RESET}  %-${w}s${C}│${RESET}\n" ""
+printf "${C}│${DIM}  To use as 'ssh' instead of 'sshm':%-$((w-36))s${C}│${RESET}\n" ""
+printf "${C}│${RESET}  ${Y}cp \$PREFIX/bin/sshm \$PREFIX/bin/ssh${RESET}%-$((w-36))s${C}│${RESET}\n" ""
+printf "${C}│${RESET}  %-${w}s${C}│${RESET}\n" ""
+printf "${C}└${line}┘${RESET}\n\n"
