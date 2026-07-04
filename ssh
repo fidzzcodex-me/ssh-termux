@@ -167,12 +167,17 @@ cmd_connect() {
 
     echo "$name" > "$ACTIVE_FILE"
 
+    # Opsi buat mempercepat koneksi:
+    # - GSSAPIAuthentication=no  : skip nyoba Kerberos/GSSAPI auth (sering bikin delay beberapa detik)
+    # - ConnectTimeout=10        : jangan nunggu lama kalau server gak respons
+    local speed_opts=(-o GSSAPIAuthentication=no -o ConnectTimeout=10 -o ServerAliveInterval=15)
+
     if [ "$AUTH" = "key" ]; then
         c_green "→ Menghubungkan ke $SSH_USER@$HOST:$PORT (key: $KEYPATH)..."
-        "$REAL_SSH" -i "$KEYPATH" -p "$PORT" "$SSH_USER@$HOST"
+        "$REAL_SSH" "${speed_opts[@]}" -i "$KEYPATH" -p "$PORT" "$SSH_USER@$HOST"
     elif [ "$AUTH" = "connstr" ]; then
         c_green "→ Menghubungkan via connection string ($CONNSTR:$PORT)..."
-        "$REAL_SSH" -p "$PORT" "$CONNSTR"
+        "$REAL_SSH" "${speed_opts[@]}" -p "$PORT" "$CONNSTR"
     else
         require_openssl
         command -v sshpass >/dev/null 2>&1 || die "sshpass belum terinstall. Jalankan: pkg install sshpass"
@@ -182,7 +187,7 @@ cmd_connect() {
         ASKED_PASS=""
         [ -z "$plain" ] && die "Master password salah atau data corrupt."
         c_green "→ Menghubungkan ke $SSH_USER@$HOST:$PORT..."
-        sshpass -p "$plain" "$REAL_SSH" -o StrictHostKeyChecking=accept-new -p "$PORT" "$SSH_USER@$HOST"
+        sshpass -p "$plain" "$REAL_SSH" "${speed_opts[@]}" -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -p "$PORT" "$SSH_USER@$HOST"
         unset plain
     fi
 
